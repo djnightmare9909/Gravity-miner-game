@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameState, BlockData } from './types';
-import { generateBlocks, generateId, formatNumber, getPickaxeName, BIG_ZERO, toBigNum, addBigNum, subBigNum, mulBigNum, powBigNum, compareBigNum } from './utils';
+import { generateBlocks, generateId, formatNumber, getPickaxeName, getPickaxeColor, BIG_ZERO, toBigNum, addBigNum, subBigNum, mulBigNum, powBigNum, compareBigNum } from './utils';
 import CraftingGrid from './components/CraftingGrid';
 import DiggingArea from './components/DiggingArea';
 import SettingsMenu from './components/SettingsMenu';
@@ -54,6 +54,7 @@ export default function App() {
   });
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const [isDropping, setIsDropping] = useState(false);
+  const [chestRewards, setChestRewards] = useState<{level: number}[]>([]);
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -217,20 +218,42 @@ export default function App() {
     setState(s => ({ ...s, currency: addBigNum(s.currency, toBigNum(amt)) }));
   }, []);
 
-  const handleChestOpen = useCallback((pickaxeLevel: number) => {
+  const handleChestOpen = useCallback((openerLevel: number) => {
     setState(s => {
-      const rewardLevel = Math.min(1000, Math.max(1, s.maxPickaxeLevel + Math.floor(Math.random() * 3)));
-      const emptyIndex = s.craftingGrid.findIndex((c, i) => c === null && s.unlockedCells[i]);
-      if (emptyIndex !== -1) {
-        const newGrid = [...s.craftingGrid];
-        newGrid[emptyIndex] = { id: generateId(), level: rewardLevel };
-        return { ...s, craftingGrid: newGrid, maxPickaxeLevel: Math.max(s.maxPickaxeLevel, rewardLevel) };
-      } else {
-        const value = mulBigNum(powBigNum(2, rewardLevel - 1), 15);
-        return { ...s, currency: addBigNum(s.currency, value) };
-      }
+      const gridLevels = s.craftingGrid.filter(c => c !== null).map(c => c!.level);
+      const possibleLevels = new Set([
+        ...gridLevels,
+        ...Array.from({length: openerLevel + 1}, (_, i) => i + 1)
+      ]);
+      const levelsArray = Array.from(possibleLevels);
+      const rewardLevel = levelsArray[Math.floor(Math.random() * levelsArray.length)];
+      
+      setChestRewards(prev => [...prev, { level: Math.min(1000, rewardLevel) }]);
+      return s;
     });
   }, []);
+
+  const handleClaimReward = (action: 'add' | 'salvage') => {
+    const currentReward = chestRewards[0];
+    if (!currentReward) return;
+    
+    setState(s => {
+      if (action === 'add') {
+        const emptyIndex = s.craftingGrid.findIndex((c, i) => c === null && s.unlockedCells[i]);
+        if (emptyIndex !== -1) {
+          const newGrid = [...s.craftingGrid];
+          newGrid[emptyIndex] = { id: generateId(), level: currentReward.level };
+          return { ...s, craftingGrid: newGrid, maxPickaxeLevel: Math.max(s.maxPickaxeLevel, currentReward.level) };
+        }
+      } else {
+        const baseVal = mulBigNum(powBigNum(2, currentReward.level - 1), 15);
+        const value = mulBigNum(baseVal, 0.80);
+        return { ...s, currency: addBigNum(s.currency, value) };
+      }
+      return s;
+    });
+    setChestRewards(prev => prev.slice(1));
+  };
 
   return (
     <div className="w-full h-screen bg-slate-950 flex items-center justify-center font-sans text-slate-100 overflow-hidden select-none">
@@ -340,6 +363,56 @@ export default function App() {
         {/* Glows */}
         <div className="absolute -top-20 -left-20 w-64 h-64 bg-indigo-600/10 rounded-full blur-[100px] pointer-events-none"></div>
         <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-blue-600/10 rounded-full blur-[100px] pointer-events-none"></div>
+
+        {/* Chest Rewards Modal */}
+        {chestRewards.length > 0 && (
+          <div className="absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+             <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 shadow-2xl flex flex-col items-center animate-in zoom-in duration-300 w-full max-w-sm">
+                <h2 className="text-xl font-black text-amber-400 mb-2 uppercase tracking-widest text-center">Chest Opened!</h2>
+                <p className="text-slate-400 text-sm mb-6 text-center">You found a new pickaxe.</p>
+                
+                {/* Pickaxe display */}
+                <div className="w-24 h-24 mb-6 relative flex items-center justify-center bg-slate-800 rounded-2xl border border-slate-700 shadow-inner">
+                   <div className="absolute inset-0 flex items-center justify-center animate-pulse">
+                     <div className="w-16 h-16 rounded-full" style={{ background: `radial-gradient(circle, ${getPickaxeColor(chestRewards[0].level)} 0%, transparent 70%)`, opacity: 0.3 }} />
+                   </div>
+                   {/* Draw pickaxe shape using CSS */}
+                   <div 
+                      className="w-12 h-12 shadow-lg rounded-t-full rounded-br-full transform -rotate-45 relative z-10"
+                      style={{ 
+                        background: getPickaxeColor(chestRewards[0].level),
+                        boxShadow: `0 0 20px ${getPickaxeColor(chestRewards[0].level)}`
+                      }}
+                   />
+                </div>
+                
+                <h3 className="text-lg font-bold text-white mb-1 text-center">{getPickaxeName(chestRewards[0].level)}</h3>
+                <p className="text-xs font-bold text-slate-500 mb-8 uppercase tracking-widest">Level {chestRewards[0].level}</p>
+
+                <div className="flex w-full gap-3">
+                  <button 
+                    onClick={() => handleClaimReward('salvage')}
+                    className="flex-1 py-3 bg-red-900/30 hover:bg-red-900/50 border border-red-500/30 rounded-xl font-bold text-[10px] sm:text-xs uppercase tracking-widest text-red-400 transition-colors flex flex-col items-center justify-center"
+                  >
+                    <span>Salvage (80%)</span>
+                    <span className="text-yellow-500 mt-1 flex items-center gap-1">
+                      🪙 {formatNumber(mulBigNum(mulBigNum(powBigNum(2, chestRewards[0].level - 1), 15), 0.8))}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => handleClaimReward('add')}
+                    disabled={state.craftingGrid.every((c, i) => c !== null || !state.unlockedCells[i])}
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:bg-slate-800 disabled:border-slate-700 disabled:text-slate-500 border border-emerald-500 rounded-xl font-bold text-[10px] sm:text-xs uppercase tracking-widest text-white transition-colors flex flex-col items-center justify-center"
+                  >
+                    Add to Grid
+                  </button>
+                </div>
+                {state.craftingGrid.every((c, i) => c !== null || !state.unlockedCells[i]) && (
+                  <p className="text-red-400 text-[10px] uppercase font-bold tracking-widest mt-4 text-center">Grid is full!</p>
+                )}
+             </div>
+          </div>
+        )}
 
         {showSettings && (
           <SettingsMenu 
