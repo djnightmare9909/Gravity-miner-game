@@ -21,8 +21,13 @@ export interface BlockData {
   yield: number;
 }
 
+export interface BigNum {
+  m: number;
+  e: number;
+}
+
 export interface GameState {
-  currency: number;
+  currency: BigNum | number;
   craftingGrid: GridCell[]; // Array of 25
   unlockedCells: boolean[]; // Array of 25
   shopLevel: number;

@@ -1,4 +1,4 @@
-import { BlockData, BlockType, BlockDef, Pickaxe, GameState, BigNum } from './types';
+import { BlockData, BlockType, BlockDef, GameState, BigNum } from './types';
 
 export const BLOCK_DEF: Record<BlockType, BlockDef> = {
   dirt: { color: '#3f2a1d', hpMult: 0.5, yieldMult: 0.5 },
