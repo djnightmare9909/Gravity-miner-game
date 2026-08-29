@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { GameState, BlockData } from './types';
-import { generateBlocks, generateId, formatNumber, getPickaxeName } from './utils';
+import { generateBlocks, generateId, formatNumber, getPickaxeName, BIG_ZERO, toBigNum, addBigNum, subBigNum, mulBigNum, powBigNum, compareBigNum } from './utils';
 import CraftingGrid from './components/CraftingGrid';
 import DiggingArea from './components/DiggingArea';
 import SettingsMenu from './components/SettingsMenu';
@@ -33,7 +33,7 @@ const loadState = (): GameState => {
   for (let i = 0; i < 5; i++) unlocked[i] = true;
 
   return {
-    currency: 15,
+    currency: toBigNum(15),
     craftingGrid: grid,
     unlockedCells: unlocked,
     shopLevel: 1,
@@ -45,7 +45,13 @@ const loadState = (): GameState => {
 };
 
 export default function App() {
-  const [state, setState] = useState<GameState>(loadState);
+  const [state, setState] = useState<GameState>(() => {
+    const s = loadState();
+    if (typeof s.currency === 'number') {
+      s.currency = toBigNum(s.currency);
+    }
+    return s;
+  });
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const [isDropping, setIsDropping] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -66,7 +72,7 @@ export default function App() {
     for (let i = 0; i < 5; i++) unlocked[i] = true;
     
     setState({
-      currency: 15,
+      currency: toBigNum(15),
       craftingGrid: grid,
       unlockedCells: unlocked,
       shopLevel: 1,
@@ -96,7 +102,7 @@ export default function App() {
         newGrid[selectedCell] = null;
         setState(s => ({ ...s, craftingGrid: newGrid }));
         setSelectedCell(null);
-      } else if (target.level === source!.level) {
+      } else if (target.level === source!.level && target.level < 1000) {
         const newLevel = target.level + 1;
         const newGrid = [...state.craftingGrid];
         newGrid[index] = { ...target, level: newLevel };
@@ -116,12 +122,13 @@ export default function App() {
   const handleTrashClick = () => {
     if (selectedCell !== null && state.craftingGrid[selectedCell]) {
       const p = state.craftingGrid[selectedCell]!;
-      const value = Math.floor(15 * Math.pow(2, p.level - 1) * 0.75);
+      const baseVal = mulBigNum(powBigNum(2, p.level - 1), 15);
+      const value = mulBigNum(baseVal, 0.75);
       const newGrid = [...state.craftingGrid];
       newGrid[selectedCell] = null;
       setState(s => ({
         ...s,
-        currency: s.currency + value,
+        currency: addBigNum(s.currency, value),
         craftingGrid: newGrid
       }));
       setSelectedCell(null);
@@ -141,14 +148,14 @@ export default function App() {
   };
 
   const handleUnlockClick = (index: number) => {
-    const cost = getUnlockCost(index);
-    if (state.currency >= cost) {
+    const cost = toBigNum(getUnlockCost(index));
+    if (compareBigNum(state.currency, cost) >= 0) {
       setState(s => {
         const newUnlocked = [...s.unlockedCells];
         newUnlocked[index] = true;
         return {
           ...s,
-          currency: s.currency - cost,
+          currency: subBigNum(s.currency, cost),
           unlockedCells: newUnlocked
         };
       });
@@ -156,8 +163,8 @@ export default function App() {
   };
 
   const handleBuy = () => {
-    const cost = 15 * Math.pow(2, state.shopLevel - 1);
-    if (state.currency >= cost) {
+    const cost = mulBigNum(powBigNum(2, state.shopLevel - 1), 15);
+    if (compareBigNum(state.currency, cost) >= 0) {
       const emptyIndex = state.craftingGrid.findIndex((c, i) => c === null && state.unlockedCells[i]);
       if (emptyIndex !== -1) {
         const newGrid = [...state.craftingGrid];
@@ -167,13 +174,13 @@ export default function App() {
           let nextLevel = s.shopLevel;
           let nextCount = s.shopBuyCount + 1;
           const req = 100 + (s.shopLevel - 1) * 50;
-          if (nextCount >= req) {
+          if (nextCount >= req && nextLevel < 1000) {
             nextLevel++;
             nextCount = 0;
           }
           return {
             ...s,
-            currency: s.currency - cost,
+            currency: subBigNum(s.currency, cost),
             craftingGrid: newGrid,
             shopLevel: nextLevel,
             shopBuyCount: nextCount,
@@ -207,20 +214,20 @@ export default function App() {
   }, []);
 
   const handleGainCurrency = useCallback((amt: number) => {
-    setState(s => ({ ...s, currency: s.currency + amt }));
+    setState(s => ({ ...s, currency: addBigNum(s.currency, toBigNum(amt)) }));
   }, []);
 
   const handleChestOpen = useCallback((pickaxeLevel: number) => {
     setState(s => {
-      const rewardLevel = Math.max(1, s.maxPickaxeLevel + Math.floor(Math.random() * 3));
+      const rewardLevel = Math.min(1000, Math.max(1, s.maxPickaxeLevel + Math.floor(Math.random() * 3)));
       const emptyIndex = s.craftingGrid.findIndex((c, i) => c === null && s.unlockedCells[i]);
       if (emptyIndex !== -1) {
         const newGrid = [...s.craftingGrid];
         newGrid[emptyIndex] = { id: generateId(), level: rewardLevel };
         return { ...s, craftingGrid: newGrid, maxPickaxeLevel: Math.max(s.maxPickaxeLevel, rewardLevel) };
       } else {
-        const value = Math.floor(15 * Math.pow(2, rewardLevel - 1));
-        return { ...s, currency: s.currency + value };
+        const value = mulBigNum(powBigNum(2, rewardLevel - 1), 15);
+        return { ...s, currency: addBigNum(s.currency, value) };
       }
     });
   }, []);
@@ -313,11 +320,11 @@ export default function App() {
             <div className="flex gap-2">
               <button 
                 onClick={handleBuy}
-                disabled={state.currency < 15 * Math.pow(2, state.shopLevel - 1)}
+                disabled={compareBigNum(state.currency, mulBigNum(powBigNum(2, state.shopLevel - 1), 15)) < 0}
                 className="flex-1 py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:hover:bg-slate-800 rounded-2xl font-black text-[11px] tracking-widest active:scale-95 transition-all flex flex-col items-center justify-center gap-1 border border-slate-700"
               >
                 <span className="text-slate-300">BUY LVL {state.shopLevel}</span>
-                <span className="text-yellow-400">🪙 {formatNumber(15 * Math.pow(2, state.shopLevel - 1))}</span>
+                <span className="text-yellow-400">🪙 {formatNumber(mulBigNum(powBigNum(2, state.shopLevel - 1), 15))}</span>
               </button>
               
               <button

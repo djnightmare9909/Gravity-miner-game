@@ -84,13 +84,27 @@ export default function DiggingArea({ grid, initialBlocks, onGainCurrency, onChe
         if (row >= 40 && row < 100 && blocksRef.current[row] && blocksRef.current[row][col]) {
            const block = blocksRef.current[row][col]!;
            
-           // Momentum-based damage modifier
-           const baseDamage = Math.pow(2, e.level - 1);
+           // Relative Damage Calculation: "recognizes what it's being hit by and scales the number"
+           // Instead of calculating Math.pow(2, level) which loses precision / causes massive numbers,
+           // we calculate the ratio of damage to the block's Max HP using logarithms.
            const momentumMultiplier = Math.max(1, Math.floor(e.vy / 2));
-           const damage = baseDamage * momentumMultiplier;
+           const log2Damage = (e.level - 1) + Math.log2(momentumMultiplier);
+           const log2MaxHp = Math.log2(block.maxHp);
+           const log2DamageRatio = log2Damage - log2MaxHp;
            
-           block.hp -= damage;
+           let damageRatio = 0;
+           if (log2DamageRatio >= 0) {
+               damageRatio = 1.0; // Pickaxe damage >= block HP, instant break
+           } else {
+               damageRatio = Math.pow(2, log2DamageRatio); // Fractional damage
+           }
+           
+           const actualDamage = block.maxHp * damageRatio;
+           block.hp -= actualDamage;
            e.hitsLeft--;
+           
+           // Floating point cleanup for near-empty blocks
+           if (block.hp < block.maxHp * 0.0001) block.hp = 0;
            
            // Bounce effect
            e.vy = -Math.max(5, Math.min(12, e.vy * 0.6));

@@ -1,4 +1,4 @@
-import { BlockData, BlockType, BlockDef } from './types';
+import { BlockData, BlockType, BlockDef, Pickaxe, GameState, BigNum } from './types';
 
 export const BLOCK_DEF: Record<BlockType, BlockDef> = {
   dirt: { color: '#3f2a1d', hpMult: 0.5, yieldMult: 0.5 },
@@ -25,12 +25,95 @@ function getRandomBlockType(stage: number): BlockType {
   return keys[idx];
 }
 
-export function formatNumber(num: number): string {
-  if (num < 1000) return Math.floor(num).toString();
-  const exp = Math.floor(Math.log10(num) / 3);
+export const BIG_ZERO: BigNum = { m: 0, e: 0 };
+
+export function normalizeBigNum(m: number, e: number): BigNum {
+  if (m === 0) return BIG_ZERO;
+  const absM = Math.abs(m);
+  const log10 = Math.floor(Math.log10(absM));
+  const newM = m / Math.pow(10, log10);
+  return { m: newM, e: e + log10 };
+}
+
+export function toBigNum(val: number | BigNum): BigNum {
+  if (typeof val === 'object' && 'm' in val) return val;
+  if (val === 0 || !isFinite(val as number)) return BIG_ZERO;
+  return normalizeBigNum(val as number, 0);
+}
+
+export function addBigNum(a: BigNum, b: BigNum): BigNum {
+  if (a.m === 0) return b;
+  if (b.m === 0) return a;
+  const diff = a.e - b.e;
+  if (diff > 15) return a;
+  if (diff < -15) return b;
+  const newM = a.m + b.m * Math.pow(10, -diff);
+  return normalizeBigNum(newM, a.e);
+}
+
+export function subBigNum(a: BigNum, b: BigNum): BigNum {
+  if (b.m === 0) return a;
+  if (a.m === 0) return BIG_ZERO;
+  const diff = a.e - b.e;
+  if (diff > 15) return a;
+  if (diff < 0) return BIG_ZERO; 
+  const newM = a.m - b.m * Math.pow(10, -diff);
+  if (newM <= 0) return BIG_ZERO;
+  return normalizeBigNum(newM, a.e);
+}
+
+export function mulBigNum(a: BigNum, b: number | BigNum): BigNum {
+  const bBig = typeof b === 'number' ? toBigNum(b) : b;
+  if (a.m === 0 || bBig.m === 0) return BIG_ZERO;
+  return normalizeBigNum(a.m * bBig.m, a.e + bBig.e);
+}
+
+export function powBigNum(base: number, exponent: number): BigNum {
+  if (base === 0) return BIG_ZERO;
+  const log10 = exponent * Math.log10(Math.abs(base));
+  const e = Math.floor(log10);
+  const m = Math.pow(10, log10 - e);
+  return { m: base < 0 && exponent % 2 !== 0 ? -m : m, e };
+}
+
+export function compareBigNum(a: BigNum, b: BigNum): number {
+  if (a.m === 0 && b.m === 0) return 0;
+  if (a.m === 0) return -1;
+  if (b.m === 0) return 1;
+  if (a.e > b.e) return 1;
+  if (a.e < b.e) return -1;
+  if (a.m > b.m) return 1;
+  if (a.m < b.m) return -1;
+  return 0;
+}
+
+export function formatNumber(num: number | BigNum): string {
+  const b = typeof num === 'number' ? toBigNum(num) : num;
+  if (b.m === 0) return "0";
+  
+  if (b.e < 3 && b.e >= 0) {
+    return Math.floor(b.m * Math.pow(10, b.e)).toString();
+  }
+  if (b.e < 0) {
+    return "0";
+  }
+
+  const exp = Math.floor(b.e / 3);
   const suffixes = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc", "Ud", "Dd", "Td", "Qad", "Qid", "E", "Z", "Y"];
-  const suffix = suffixes[exp] || "e" + (exp * 3);
-  const short = num / Math.pow(10, exp * 3);
+  
+  let suffix = "";
+  if (exp < suffixes.length) {
+    suffix = suffixes[exp];
+  } else {
+    // Specialized big-number formatting for incremental games (aa, ab, ac...)
+    const letterIdx = exp - suffixes.length;
+    const firstLetter = String.fromCharCode(97 + Math.floor(letterIdx / 26) % 26);
+    const secondLetter = String.fromCharCode(97 + (letterIdx % 26));
+    suffix = firstLetter + secondLetter;
+  }
+  
+  const remainder = b.e % 3;
+  const short = b.m * Math.pow(10, remainder);
   return short.toFixed(2).replace(/\.00$/, '') + suffix;
 }
 
